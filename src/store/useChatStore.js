@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import AgentService from '../services/AgentService';
 
 const useChatStore = create((set, get) => ({
   messages: [
@@ -19,47 +20,33 @@ const useChatStore = create((set, get) => ({
     agents: state.agents.map(a => a.name === agentName ? { ...a, status } : a)
   })),
 
-  processMessage: (text) => {
-    const { addMessage, updateAgentStatus, agents } = get();
+  processMessage: async (text) => {
+    const { addMessage, agents } = get();
     
-    // Add user message
+    // 1. Add user message
     addMessage({ text, sender: 'You', type: 'user' });
 
-    // Basic @mention parsing
+    // 2. Parse mentions
     const mentions = text.match(/@(\w+)/g) || [];
     const isSwarmBroadcast = text.toLowerCase().includes('@swarm');
 
     if (isSwarmBroadcast) {
-      agents.forEach(agent => {
-        setTimeout(() => {
-          updateAgentStatus(agent.name, 'thinking');
-          setTimeout(() => {
-            addMessage({
-              text: `${agent.name}: Acknowledged broadcast. Processing...`,
-              sender: agent.name,
-              type: 'agent',
-            });
-            updateAgentStatus(agent.name, 'idle');
-          }, 1500 + Math.random() * 2000);
-        }, Math.random() * 1000);
-      });
-    } else {
+      addMessage({ text: 'Broadcasting task to the entire swarm...', sender: 'System', type: 'system' });
+      AgentService.broadcastTask(text.replace('@swarm', '').trim());
+    } else if (mentions.length > 0) {
       mentions.forEach(mention => {
         const agentName = mention.substring(1);
         const agent = agents.find(a => a.name.toLowerCase() === agentName.toLowerCase());
         
         if (agent) {
-          updateAgentStatus(agent.name, 'thinking');
-          setTimeout(() => {
-            addMessage({
-              text: `${agent.name}: I hear you, Capo. Working on it.`,
-              sender: agent.name,
-              type: 'agent',
-            });
-            updateAgentStatus(agent.name, 'idle');
-          }, 2000);
+          AgentService.executeTask(agent.id, text.replace(mention, '').trim());
+        } else {
+          addMessage({ text: `Agent "${agentName}" not found in the cluster.`, sender: 'System', type: 'system' });
         }
       });
+    } else {
+      // Default behavior: Architect acknowledges
+      AgentService.executeTask('architect', text);
     }
   }
 }));
